@@ -77,29 +77,31 @@ library(klaR)</code></pre>
 <pre><code>## Loading required package: MASS</code></pre>
 <pre class="r"><code>#library(DMwR)
 
+## read the data
 setwd(&quot;~&quot;)
 setwd(&quot;./Google Drive/Course/Data Science/PracML/proj&quot;)
 download.file(&quot;https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv&quot;,destfile=&quot;pml-training.csv&quot;,method=&quot;curl&quot;)
 download.file(&quot;https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv&quot;,destfile=&quot;pml-testing.csv&quot;,method=&quot;curl&quot;)
-
 pmltraindata &lt;- read.csv(&quot;pml-training.csv&quot;)
 pmltestdata &lt;- read.csv(&quot;pml-testing.csv&quot;)
 
+## clean up the redundant data, i.e. variables with most values missing
 pmltraindata1 &lt;- pmltraindata[,colMeans(is.na(pmltraindata)) &lt; 0.5]
-
 pmltraindata2 &lt;- pmltraindata1[,colMeans(pmltraindata1==&quot;&quot;) &lt; 0.5]
 
-#ignoreCol &lt;- c(&quot;X&quot;, &quot;user_name&quot;,&quot;raw_timestamp_part_1&quot;, &quot;raw_timestamp_part_2&quot;, &quot;cvtd_timestamp&quot;)
+## also ignore the first five column which doesn't seem to be relevant to the modeling
 ignoreCol &lt;- 1:5
-
 train &lt;- pmltraindata2[,-ignoreCol]
-vars &lt;- names(train)
 
+## Use leave-p-out cross validation with 30 % data as validation set
 set.seed(999)
 inTrain &lt;- createDataPartition(y=train$classe, p=0.7, list=FALSE)
 training &lt;- train[inTrain,]
 cvalidation &lt;- train[-inTrain,]
 
+
+## Build the five models with different ML algorithms using the same training set and measure the out-of-sample errors using the validation set
+########################################
 ## rpart
 rpart_trctrl &lt;- trainControl(method = &quot;cv&quot;, number=5)
 rpartGrid &lt;-  expand.grid(cp = 0.0001)
@@ -145,7 +147,6 @@ modFit5 &lt;- train(classe ~., method = &quot;svmLinear&quot;, data=training, tr
 accuracy5 &lt;- confusionMatrix(cvpred5, cvalidation$classe)$overall[[1]]
 # predictors(modFit5)
 
-
 ## gbm
 gbm_trctrl  &lt;- trainControl(method=&quot;cv&quot;, number=5)
 gbmGrid &lt;-  expand.grid(interaction.depth = 3, n.trees = 150, shrinkage = .1,n.minobsinnode=10)
@@ -190,6 +191,8 @@ modFit7 &lt;- train(classe ~., method = &quot;knn&quot;, data=training,trControl
 accuracy7 &lt;- confusionMatrix(cvpred7, cvalidation$classe)$overall[[1]]
 # predictors(modFit7)
 
+#########################################
+
 ## model comparison based on resampling
 resamps &lt;- resamples(list(RPART=modFit1,
                           RF=modFit4,
@@ -204,6 +207,8 @@ bwplot(resamps, layout = c(2, 1))</code></pre>
 #pmltestdata2 &lt;- pmltestdata1[,colMeans(pmltestdata1==&quot;&quot;) &lt; 0.5]
 
 
+## use the most accurate model (RF) to predict the test dataset, need to make sure to use the same variables
+vars &lt;- names(train)
 testing &lt;- pmltestdata[,vars[1:54]]
 levels(testing$new_window) &lt;- levels(training$new_window)
 testpred &lt;- predict(modFit4, newdata=testing)
