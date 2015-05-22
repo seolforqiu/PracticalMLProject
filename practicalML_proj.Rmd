@@ -1,0 +1,153 @@
+---
+title: "Human Activity Recognition with Machine Learning"
+output: html_document
+---
+### Introduction
+Human Activity Recognition (HAR) has become a key research area in recent years and is gaining increasing attention by the research community and general public. 
+
+Here a dataset with 5 classes (sitting-down, standing-up, standing, walking, and sitting) collected on 8 hours of activities of 4 healthy subjects are studied with machine learning algorithms. The dataset is avaialbe from [here](http://groupware.les.inf.puc-rio.br/static/har/dataset-har-PUC-Rio-ugulino.zip).
+
+Five machine learning algorithms with capability of classification are used to train and build machine learning models and their performance is compared and analyzed.
+
+### Exploratory Study
+Explorotary study identified a great amount of the 160 varialbes contains 96% or more NAs or NULLs, which cannot be imputed due to the great likelihood of errors. An easy but proper way to tackle this issue is to delete these variables. Here I choose 50% as the cutoff treshold, i.e. deleting all the variables with 50% or more missing values. Only 55 variables left after this treatment. After checking the remaining dataset, we found neither NAs nor NULLs left in training and test sets, which means there is no need to impute.
+
+### Implementation Methods
+The training dataset is split into two parts for esitimation of out of sample error. Leave-p-out cross validation was used to estimate the out of sample error. More speicifically, the training dataset was randomly split into two parts with 70% of the data in the training set and 30% of the data in the cross validation set.
+Recursive partitionning and regression trees (RPART), random forests (RF), support vector machine (SVM), generalized boosted regression model (GBM) and k-nearest neighbors (KNN) with the caret R package are used to build the model and those models are compared. All of these models uses internal 5-fold cross validation when building the models.
+
+
+```{r}
+library(caret)
+library(ggplot2)
+library(klaR)
+#library(DMwR)
+
+## read the data
+setwd("~")
+setwd("./Google Drive/Course/Data Science/PracML/proj")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",destfile="pml-training.csv",method="curl")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",destfile="pml-testing.csv",method="curl")
+pmltraindata <- read.csv("pml-training.csv")
+pmltestdata <- read.csv("pml-testing.csv")
+
+## clean up the redundant data, i.e. variables with most values missing
+pmltraindata1 <- pmltraindata[,colMeans(is.na(pmltraindata)) < 0.5]
+pmltraindata2 <- pmltraindata1[,colMeans(pmltraindata1=="") < 0.5]
+
+## also ignore the first five column which doesn't seem to be relevant to the modeling
+ignoreCol <- 1:5
+train <- pmltraindata2[,-ignoreCol]
+
+## Use leave-p-out cross validation with 30 % data as validation set
+set.seed(999)
+inTrain <- createDataPartition(y=train$classe, p=0.7, list=FALSE)
+training <- train[inTrain,]
+cvalidation <- train[-inTrain,]
+
+
+## Build the five models with different ML algorithms using the same training set and measure the out-of-sample errors using the validation set
+########################################
+## rpart
+rpart_trctrl <- trainControl(method = "cv", number=5)
+rpartGrid <-  expand.grid(cp = 0.0001)
+set.seed(999)
+modFit1 <- train(classe ~., method = "rpart", data=training,trControl=rpart_trctrl,tuneGrid=rpartGrid)
+cvpred1 <- predict(modFit1, newdata=cvalidation)
+accuracy1 <- confusionMatrix(cvpred1, cvalidation$classe)$overall[[1]]
+
+## random forest
+# set.seed(999)
+# modFit2 <- randomForest(classe ~.,data=training)
+# cvpred2 <- predict(modFit2, newdata=cvalidation)
+# confusionMatrix(cvpred2, cvalidation$classe)$overall
+# predictors(modFit2)
+
+
+## rpart
+# set.seed(999)
+# modFit3 <- rpart(classe ~., data=training,method="class",control=rpart.control (minsplit=5, cp=0.0001, xval=1))
+# cvpred3 <- predict(modFit3, newdata=cvalidation,type="class")
+# confusionMatrix(cvpred3, cvalidation$classe)$overall
+# predictors(modFit3)
+
+## ramdom forest
+rf_trctrl <- trainControl(method = "cv", number=5)
+rfGrid <-  expand.grid(mtry = 28)
+set.seed(999)
+modFit4 <- train(classe ~., method = "rf", data=training, trControl=rf_trctrl,tuneGrid=rfGrid)
+cvpred4 <- predict(modFit4, newdata=cvalidation)
+accuracy4 <- confusionMatrix(cvpred4, cvalidation$classe)$overall[[1]]
+# predictors(modFit4)
+
+## svm
+svm_trctrl <- trainControl(method="cv", number=5)
+set.seed(999)
+modFit5 <- train(classe ~., method = "svmLinear", data=training, trControl=svm_trctrl)
+cvpred5 <- predict(modFit5, newdata=cvalidation)
+accuracy5 <- confusionMatrix(cvpred5, cvalidation$classe)$overall[[1]]
+# predictors(modFit5)
+
+## gbm
+gbm_trctrl  <- trainControl(method="cv", number=5)
+gbmGrid <-  expand.grid(interaction.depth = 3, n.trees = 150, shrinkage = .1,n.minobsinnode=10)
+set.seed(999)
+modFit6 <- train(classe ~., method = "gbm", data=training, trControl = gbm_trctrl, distribution="multinomial", tuneGrid=gbmGrid, verbose=FALSE)
+cvpred6 <- predict(modFit6, newdata=cvalidation)
+accuracy6 <- confusionMatrix(cvpred6, cvalidation$classe)$overall[[1]]
+# predictors(modFit6)
+
+## knn
+knn_trctrl = trainControl(method="cv",number=5, verboseIter=T)
+set.seed(999)
+knnGrid <-  expand.grid(k=5)
+modFit7 <- train(classe ~., method = "knn", data=training,trControl=knn_trctrl,tuneGrid=knnGrid)
+cvpred7 <- predict(modFit7, newdata=cvalidation)
+accuracy7 <- confusionMatrix(cvpred7, cvalidation$classe)$overall[[1]]
+# predictors(modFit7)
+
+#########################################
+
+## model comparison based on resampling
+resamps <- resamples(list(RPART=modFit1,
+                          RF=modFit4,
+                          SVM = modFit5,
+                          KNN = modFit7,
+                          GBM = modFit6))
+
+trellis.par.set(caretTheme())
+bwplot(resamps, layout = c(2, 1))
+
+#pmltestdata1 <- pmltestdata[,colMeans(is.na(pmltestdata)) < 0.5]
+#pmltestdata2 <- pmltestdata1[,colMeans(pmltestdata1=="") < 0.5]
+
+
+## use the most accurate model (RF) to predict the test dataset, need to make sure to use the same variables
+vars <- names(train)
+testing <- pmltestdata[,vars[1:54]]
+levels(testing$new_window) <- levels(training$new_window)
+testpred <- predict(modFit4, newdata=testing)
+
+# pred2 <- predict(modFit2, newdata=testing)
+# pml_write_files = function(x){
+#        n = length(x)
+#        for(i in 1:n){
+#              filename = paste0("./output/problem_id_",i,".txt")
+#              write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+#          }
+# }
+# pml_write_files(pred2)
+
+```
+
+### Out of sample error estimation
+The accuracy of RPART, RF, SVM, GBM and KNN are found to be `r accuracy1`, `r accuracy4`, `r accuracy5`, `r accuracy6`, `r accuracy7`, which implies the out of sample errors of models are in the order (from greatest to smallest) of SVM > KNN > RPART > GBM > RF. I also evaluated these five models with the resample error and the same trend as shown in the figure.
+When implementing the above models to predict the testset, similar (though a bit different) accuracy were also identified.
+
+```{r, echo=FALSE}
+#bwplot(resamps, layout = c(2, 1))
+```
+
+
+### Reference
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. [Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements](http://groupware.les.inf.puc-rio.br/work.jsf?p1=10335). Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: **Lecture Notes in Computer Science**. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6.
